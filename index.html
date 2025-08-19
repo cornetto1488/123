@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Neon Heart Gallery</title>
+  <style>
+    :root {
+      /* МОЖНО МЕНЯТЬ: зазор между тайлами и внутренний отступ рамки сердца */
+      --gap: 6px;
+      --pad: 12px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: #0a0b12;
+      color: #fff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      overflow: hidden; /* жесты внутри сердца, страница не скроллится */
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Порядок слоёв: фото под неоном, неон поверх; модалки ещё выше */
+    #media-mask { z-index: 20; }
+    #canvas     { z-index: 30; }  /* неон над фото */
+    #popLayer   { z-index: 40; }
+    #intro      { z-index: 50; }
+    #gate       { z-index: 60; }
+
+    /* Неоновый канвас */
+    #canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      pointer-events: none; /* клики проходят сквозь неон */
+    }
+
+    /* SVG defs для clip-path сердца */
+    #svg-defs { width: 0; height: 0; position: absolute; }
+
+    /* Контейнер, который обрезается формой сердца */
+    #media-mask {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      background: transparent;
+      clip-path: url(#heart-clip);
+      -webkit-clip-path: url(#heart-clip);
+      pointer-events: auto;
+      touch-action: none; /* чтобы панорамирование не конфликтовало с системной прокруткой */
+    }
+
+    /* Бесконечная плоскость из 3x3 повторов базовой сетки */
+    #plane {
+      position: absolute;
+      left: 0; top: 0;
+      will-change: transform;
+      transform: translate3d(0,0,0);
+    }
+    .wrap9 {
+      position: absolute;
+      left: 0; top: 0;
+      will-change: transform;
+    }
+    .baseGrid {
+      position: relative;
+      left: 0; top: 0;
+      will-change: transform;
+    }
+
+    /* Квадратные ячейки (фото/видео) */
+    .cell {
+      position: absolute;
+      overflow: hidden;
+      border-radius: 14px;
+      background: #111;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset;
+      cursor: pointer;
+      transition: transform .12s ease, box-shadow .12s ease;
+      touch-action: none;
+    }
+    .cell:active { transform: scale(0.98); }
+    .cell img, .cell video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      user-select: none;
+      -webkit-user-drag: none;
+      pointer-events: none; /* тапы ловит .cell */
+    }
+    .cell.video-thumb::after{
+      content: "▶";
+      position: absolute;
+      right: 8px; bottom: 6px;
+      font-size: 18px;
+      line-height: 1;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.14);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+      pointer-events: none;
+    }
+
+    /* Стартовый модальный вопрос */
+    #gate {
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(60vmin 60vmin at 50% 40%, rgba(255,0,120,0.25), rgba(0,0,0,0)),
+        rgba(0,0,0,0.85);
+      display: grid;
+      place-items: center;
+      transition: opacity .35s ease, visibility .35s ease;
+    }
+    #gate.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+    .dialog {
+      width: min(92vw, 520px);
+      background: rgba(15,15,20,0.9);
+      border: 1px solid rgba(255,255,255,0.09);
+      backdrop-filter: blur(8px);
+      padding: 22px;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .dialog h2 { margin: 0 0 10px; font-weight: 800; }
+    .dialog p { margin: 0 0 14px; opacity: 0.9; }
+    .row { display: flex; gap: 8px; }
+    input[type="text"] {
+      flex: 1;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.06);
+      color: #fff;
+      outline: none;
+      font-size: 16px;
+    }
+    button {
+      padding: 12px 16px;
+      border-radius: 10px;
+      border: 0;
+      cursor: pointer;
+      background: linear-gradient(135deg, #ff1688, #5aa0ff);
+      color: #fff;
+      font-weight: 700;
+      font-size: 16px;
+    }
+    .hint { font-size: 13px; opacity: 0.8; margin-top: 8px; }
+
+    .shake { animation: shake .4s ease; }
+    @keyframes shake {
+      10%, 90% { transform: translateX(-2px) }
+      20%, 80% { transform: translateX(4px) }
+      30%, 50%, 70% { transform: translateX(-6px) }
+      40%, 60% { transform: translateX(6px) }
+    }
+
+    /* Инструкция после вопроса */
+    #intro {
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(60vmin 60vmin at 50% 40%, rgba(0,140,255,0.18), rgba(0,0,0,0)),
+        rgba(0,0,0,0.85);
+      display: none;
+      opacity: 0;
+      place-items: center;
+      transition: opacity .35s ease, visibility .35s ease;
+    }
+    #intro.show { display: grid; opacity: 1; }
+    .howto {
+      width: min(92vw, 520px);
+      background: rgba(15,15,20,0.9);
+      border: 1px solid rgba(255,255,255,0.09);
+      backdrop-filter: blur(8px);
+      padding: 22px;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .howto ul { margin: 0 0 12px 20px; padding: 0; }
+    .howto li { margin: 6px 0; }
+
+    /* Попап полноэкранного просмотра */
+    #popLayer {
+      position: fixed;
+      inset: 0;
+      background: rgba(5,6,12,0.7);
+      display: none;
+      opacity: 0;
+      transition: opacity .25s ease;
+    }
+    #popLayer.show { display: block; opacity: 1; }
+    #popContent {
+      position: fixed;
+      left: 50%; top: 50%;
+      transform: translate(-50%,-50%);
+      width: min(92vw, 92vh);
+      height: min(92vw, 92vh);
+      max-width: 1000px; max-height: 1000px;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #000;
+      box-shadow: 0 40px 120px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+    #popContent img, #popContent video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    #popClose {
+      position: fixed;
+      top: 16px; right: 16px;
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      background: rgba(20,20,26,0.85);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #fff;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      user-select: none;
+    }
+
+    @media (max-width: 480px) {
+      :root { --gap: 5px; --pad: 10px; }
+      .dialog, .howto { padding: 18px; }
+      button { font-size: 15px; }
+      input[type="text"] { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ВОПРОС -->
+  <div id="gate">
+    <div class="dialog" id="gateDialog">
+      <h2>Ответь на вопрос</h2>
+      <p id="questionText">Как звали моего кота?</p>
+      <div class="row">
+        <input id="answerInput" type="text" placeholder="Твой ответ..." autocomplete="off" />
+        <button id="submitBtn">Отправить</button>
+      </div>
+      <p class="hint" id="hintText">Подсказка: ответ — «Барсик».</p>
+    </div>
+  </div>
+
+  <!-- ИНСТРУКЦИЯ -->
+  <div id="intro" aria-hidden="true">
+    <div class="howto">
+      <h2 style="margin:0 0 10px;">Как листать галерею</h2>
+      <ul>
+        <li>Води пальцем в любую сторону — вверх, вниз, влево или вправо.</li>
+        <li>Прокрутка бесконечная (как на Apple Watch) — просто продолжай движение.</li>
+        <li>Нажми на фото, чтобы открыть его на весь экран.</li>
+      </ul>
+      <button id="startBtn" style="width:100%;">Далее</button>
+    </div>
+  </div>
+
+  <!-- НЕОН -->
+  <canvas id="canvas"></canvas>
+
+  <!-- SVG: clip-path сердца -->
+  <svg id="svg-defs" aria-hidden="true" focusable="false">
+    <defs>
+      <clipPath id="heart-clip" clipPathUnits="objectBoundingBox">
+        <path id="heart-path" d=""/>
+      </clipPath>
+    </defs>
+  </svg>
+
+  <!-- СЕРДЦЕ с бесконечной плоскостью -->
+  <div id="media-mask">
+    <div id="plane"></div>
+  </div>
+
+  <!-- ПОПАП -->
+  <div id="popLayer" aria-hidden="true">
+    <div id="popContent"></div>
+    <div id="popClose" title="Закрыть (Esc)">✕</div>
+  </div>
+
+  <script>
+    /* ======================= НАСТРОЙКИ ======================= */
+    const RIGHT_ANSWERS = ['барсик','barsik']; // корректные ответы (нижний регистр)
+
+    // ХОЧЕШЬ БОЛЬШЕ/МЕНЬШЕ СЕРДЦЕ? Меняй множитель:
+    const HEART_SCALE_MULT = 4;   // увеличить размеры сердца и неона в 2 раза
+    const HEART_MARGIN      = 0.03; // запас до краёв (0..1), чтобы не обрезалось
+    const CSS_SCALE_BASE    = 0.000015; // базовый коэффициент (умножается на высоту окна)
+
+    // Параметры бесконечной сетки
+    const GRID_CFG = {
+      cols: 6,
+      rows: 8,
+      targetTile: 84,
+      minTile: 58,
+      maxTile: 140  // слегка поднял максимум, чтобы тайлы росли с сердцем
+    };
+
+    // Контент (фото/видео)
+    const media = [
+      { type: 'img', src: 'https://picsum.photos/seed/heart-1/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-2/1000/1000' },
+      { type: 'video', src: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4', poster: 'https://picsum.photos/seed/poster1/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-3/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-4/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-5/1000/1000' },
+      { type: 'video', src: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm', poster: 'https://picsum.photos/seed/poster2/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-6/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-7/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-8/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-9/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-10/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-11/1000/1000' },
+      { type: 'video', src: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4', poster: 'https://picsum.photos/seed/poster3/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-12/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-13/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-14/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-15/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-16/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-17/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-18/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-19/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-20/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-21/1000/1000' },
+      { type: 'video', src: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm', poster: 'https://picsum.photos/seed/poster4/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-22/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-23/1000/1000' },
+      { type: 'img', src: 'https://picsum.photos/seed/heart-24/1000/1000' }
+    ];
+    /* ======================= КОНЕЦ НАСТРОЕК ======================= */
+
+    const gate = document.getElementById('gate');
+    const gateDialog = document.getElementById('gateDialog');
+    const answerInput = document.getElementById('answerInput');
+    const submitBtn = document.getElementById('submitBtn');
+
+    function norm(s){ return (s||'').toString().trim().toLowerCase(); }
+    function isCorrect(a){ return RIGHT_ANSWERS.some(x => norm(x) === norm(a)); }
+    function ask(){
+      const val = answerInput.value;
+      if (isCorrect(val)) {
+        gate.classList.add('hidden');
+        showIntro();
+      } else {
+        gateDialog.classList.remove('shake');
+        void gateDialog.offsetWidth;
+        gateDialog.classList.add('shake');
+      }
+    }
+    submitBtn.addEventListener('click', ask);
+    answerInput.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+
+    const intro = document.getElementById('intro');
+    document.getElementById('startBtn').addEventListener('click', () => {
+      intro.classList.remove('show');
+      start(); 
+    });
+    function showIntro(){ intro.classList.add('show'); }
+
+
+    const heartPathEl = document.getElementById('heart-path');
+    let heartBounds = { minX: .25, minY: .2, maxX: .75, maxY: .8 };
+    let CURRENT_CSS_SCALE = CSS_SCALE_BASE * innerHeight; 
+
+    function getHeartXY(t){
+      const x = 16 * Math.sin(t) ** 3;
+      const y = -(13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t));
+      return { x, y };
+    }
+    function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+
+    function measureExtents(scale){
+      const W = innerWidth; const H = innerHeight; const wh = W / H;
+      let minU =  1e9, maxU = -1e9, minY =  1e9, maxY = -1e9;
+      const dt = (Math.PI * 2) / 500;
+      for (let i = 0; i <= 500; i++){
+        const t = i * dt;
+        const {x: hx, y: hy} = getHeartXY(t);
+        const posx = scale * hx;
+        const posy = scale * hy;
+        const u = 0.5 - posx;                         
+        const yN = 0.5 + (posy - 0.02) * wh;         
+        if (u < minU) minU = u; if (u > maxU) maxU = u;
+        if (yN < minY) minY = yN; if (yN > maxY) maxY = yN;
+      }
+      return { minU, maxU, minY, maxY };
+    }
+
+    function buildHeartClipPath(){
+      const base = CSS_SCALE_BASE * innerHeight;
+      let s = base * HEART_SCALE_MULT;
+
+      let ext = measureExtents(s);
+      let guard = 0;
+      const minAllowed = HEART_MARGIN, maxAllowed = 1 - HEART_MARGIN;
+      while (guard++ < 40 && (
+        ext.minU < minAllowed || ext.maxU > maxAllowed ||
+        ext.minY < minAllowed || ext.maxY > maxAllowed
+      )){
+        s *= 0.96; 
+        ext = measureExtents(s);
+      }
+      CURRENT_CSS_SCALE = s; 
+
+      const W = innerWidth; const H = innerHeight; const wh = W / H;
+      const dt = (Math.PI * 2) / 500;
+      let d = '';
+      let minX = 1, minY = 1, maxX = 0, maxY = 0;
+      for (let i = 0; i <= 500; i++){
+        const t = i * dt;
+        const {x: hx, y: hy} = getHeartXY(t);
+        const posx = s * hx;
+        const posy = s * hy;
+        const u = 0.5 - posx;
+        const vGL = 0.5 - (posy - 0.02) * wh;
+        const x = +clamp01(u).toFixed(6);
+        const y = +clamp01(1.0 - vGL).toFixed(6);
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        d += (i === 0 ? 'M ' : ' L ') + x + ' ' + y;
+      }
+      d += ' Z';
+      heartPathEl.setAttribute('d', d);
+      heartBounds = { minX, minY, maxX, maxY };
+    }
+
+    const plane = document.getElementById('plane');
+    const GAP = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--gap')) || 6;
+    const PAD = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pad')) || 12;
+
+    let tile = 84, cols = GRID_CFG.cols, rows = GRID_CFG.rows;
+    let Gx = 0, Gy = 0;
+    let ox = 0, oy = 0; 
+    let vx = 0, vy = 0; 
+    let dragging = false;
+    let lastX = 0, lastY = 0, lastT = 0;
+    let rafInertia = 0;
+
+    function chooseTile(){
+      const W = (heartBounds.maxX - heartBounds.minX) * innerWidth - PAD * 2;
+      const H = (heartBounds.maxY - heartBounds.minY) * innerHeight - PAD * 2;
+      const tX = (W - GAP * (cols + 1)) / cols;
+      const tY = (H - GAP * (rows + 1)) / rows;
+      tile = Math.max(GRID_CFG.minTile, Math.min(GRID_CFG.maxTile, Math.min(tX, tY, GRID_CFG.targetTile)));
+      tile = Math.floor(tile);
+      Gx = Math.round(cols * (tile + GAP));
+      Gy = Math.round(rows * (tile + GAP));
+    }
+
+    function buildBaseGrid(){
+      plane.innerHTML = '';
+      plane.style.width = `${Gx*3}px`;
+      plane.style.height = `${Gy*3}px`;
+
+      for (let j = -1; j <= 1; j++){
+        for (let i = -1; i <= 1; i++){
+          const wrap = document.createElement('div');
+          wrap.className = 'wrap9';
+          wrap.style.transform = `translate(${(i+1)*Gx}px, ${(j+1)*Gy}px)`;
+          wrap.style.width = `${Gx}px`;
+          wrap.style.height = `${Gy}px`;
+
+          const grid = document.createElement('div');
+          grid.className = 'baseGrid';
+          grid.style.width = `${Gx}px`;
+          grid.style.height = `${Gy}px`;
+
+          for (let gy = 0; gy < rows; gy++){
+            for (let gx = 0; gx < cols; gx++){
+              const idx = (gy * cols + gx) % media.length;
+              const meta = media[idx];
+              const cell = document.createElement('div');
+              cell.className = 'cell';
+              const x = Math.round(GAP + gx * (tile + GAP));
+              const y = Math.round(GAP + gy * (tile + GAP));
+              cell.style.left = `${x}px`;
+              cell.style.top = `${y}px`;
+              cell.style.width = `${tile}px`;
+              cell.style.height = `${tile}px`;
+
+              if (meta.type === 'video') {
+                cell.classList.add('video-thumb');
+                const video = document.createElement('video');
+                video.src = meta.src;
+                if (meta.poster) video.setAttribute('poster', meta.poster);
+                video.preload = 'metadata';
+                video.playsInline = true;
+                video.muted = true;
+                video.controls = false;
+                cell.appendChild(video);
+              } else {
+                const img = document.createElement('img');
+                img.src = meta.src;
+                img.alt = 'Фото';
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                cell.appendChild(img);
+              }
+
+              cell.addEventListener('click', () => openPop(meta));
+              grid.appendChild(cell);
+            }
+          }
+
+          wrap.appendChild(grid);
+          plane.appendChild(wrap);
+        }
+      }
+      applyPlaneTransform(); 
+    }
+
+    function applyPlaneTransform(){
+      const modX = ((ox % Gx) + Gx) % Gx - Gx;
+      const modY = ((oy % Gy) + Gy) % Gy - Gy;
+      plane.style.transform = `translate3d(${modX}px, ${modY}px, 0)`;
+    }
+
+    function onPointerDown(e){
+      if (e.pointerType === 'mouse' && e.button !== 0) return; 
+      const mask = document.getElementById('media-mask');
+      mask.setPointerCapture?.(e.pointerId);
+      dragging = true;
+      stopInertia();
+      const t = e.touches ? e.touches[0] : e;
+      lastX = t.clientX; lastY = t.clientY; lastT = performance.now();
+    }
+    function onPointerMove(e){
+      if (!dragging) return;
+      const t = e.touches ? e.touches[0] : e;
+      const x = t.clientX, y = t.clientY;
+      const dx = x - lastX, dy = y - lastY;
+      ox += dx; oy += dy;
+      vx = dx; vy = dy;
+      applyPlaneTransform();
+      lastX = x; lastY = y; lastT = performance.now();
+    }
+    function onPointerUp(e){
+      if (!dragging) return;
+      const mask = document.getElementById('media-mask');
+      mask.releasePointerCapture?.(e.pointerId);
+      dragging = false;
+      startInertia();
+    }
+    function onWheel(e){
+      e.preventDefault();
+      const scale = (e.deltaMode === 1) ? 16 : 1; 
+      ox -= e.deltaX * scale;
+      oy -= e.deltaY * scale;
+      applyPlaneTransform();
+      vx = -e.deltaX * scale * 0.3;
+      vy = -e.deltaY * scale * 0.3;
+      startInertia();
+    }
+    function startInertia(){
+      cancelAnimationFrame(rafInertia);
+      function tick(){
+        vx *= 0.95; vy *= 0.95;
+        ox += vx; oy += vy;
+        applyPlaneTransform();
+        if (Math.hypot(vx, vy) > 0.08) {
+          rafInertia = requestAnimationFrame(tick);
+        }
+      }
+      rafInertia = requestAnimationFrame(tick);
+    }
+    function stopInertia(){ cancelAnimationFrame(rafInertia); }
+
+    (function bindGestures(){
+      const mask = document.getElementById('media-mask');
+      mask.addEventListener('pointerdown', onPointerDown);
+      mask.addEventListener('pointermove', onPointerMove);
+      mask.addEventListener('pointerup', onPointerUp);
+      mask.addEventListener('pointercancel', onPointerUp);
+      mask.addEventListener('wheel', onWheel, { passive: false });
+
+      mask.addEventListener('touchstart', onPointerDown, { passive: true });
+      mask.addEventListener('touchmove', onPointerMove, { passive: true });
+      mask.addEventListener('touchend', onPointerUp, { passive: true });
+    })();
+
+    const popLayer = document.getElementById('popLayer');
+    const popContent = document.getElementById('popContent');
+    const popClose = document.getElementById('popClose');
+
+    function openPop(meta){
+      popContent.innerHTML = '';
+      let el;
+      if (meta.type === 'video') {
+        el = document.createElement('video');
+        el.src = meta.src;
+        if (meta.poster) el.setAttribute('poster', meta.poster);
+        el.controls = true;
+        el.autoplay = true;
+        el.playsInline = true;
+        el.muted = false;
+      } else {
+        el = document.createElement('img');
+        el.src = meta.src;
+        el.alt = 'Фото';
+      }
+      popContent.appendChild(el);
+      popLayer.classList.add('show');
+      popLayer.setAttribute('aria-hidden','false');
+    }
+    function closePop(){
+      popLayer.classList.remove('show');
+      popLayer.setAttribute('aria-hidden','true');
+      popContent.innerHTML = '';
+    }
+    popLayer.addEventListener('click', (e) => {
+      if (e.target === popLayer || e.target === popClose) closePop();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePop(); });
+
+    let gl, timeHandle, widthHandle, heightHandle, scaleHandle, lastFrame = 0, ttime = 0, drawRaf;
+
+    function initGL() {
+      const canvas = document.getElementById('canvas');
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.style.width = '100vw';
+      canvas.style.height = '100vh';
+      canvas.width  = Math.floor(innerWidth  * dpr);
+      canvas.height = Math.floor(innerHeight * dpr);
+
+      gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
+      if (!gl) { console.error('WebGL не поддерживается'); return; }
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+      const vsSrc = 'attribute vec2 position; void main(){ gl_Position = vec4(position,0.0,1.0); }';
+      const fsSrc = `
+        precision highp float;
+        uniform float width; uniform float height; uniform float time; uniform float scale; 
+        vec2 resolution = vec2(width, height);
+        #define POINT_COUNT 8
+        vec2 points[POINT_COUNT];
+        const float speed = -0.5;
+        const float len = 0.25;
+        float intensity = 1.3;
+        float radius = 0.008;
+
+        float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C){
+          vec2 a = B - A;
+          vec2 b = A - 2.0*B + C;
+          vec2 c = a*2.0;
+          vec2 d = A - pos;
+          float kk = 1.0/dot(b,b);
+          float kx = kk*dot(a,b);
+          float ky = kk*(2.0*dot(a,a)+dot(d,b))/3.0;
+          float kz = kk*dot(d,a);
+          float p = ky - kx*kx;
+          float p3 = p*p*p;
+          float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
+          float h = q*q + 4.0*p3;
+          float res;
+          if(h >= 0.0){
+            h = sqrt(h);
+            vec2 x = (vec2(h,-h)-q)/2.0;
+            vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+            float t = clamp(uv.x+uv.y-kx,0.0,1.0);
+            vec2 qos = d + (c + b*t)*t;
+            res = length(qos);
+          } else {
+            float z = sqrt(-p);
+            float v = acos(q/(p*z*2.0))/3.0;
+            float m = cos(v);
+            float n = sin(v)*1.732050808;
+            vec3 t = vec3(m+m, -n-m, n-м)*з - kx; /* ASCII-only fix: ниже нормальная строка */
+          }
+        }`;
+
+      const fsFixed = `
+        precision highp float;
+        uniform float width; uniform float height; uniform float time; uniform float scale; 
+        vec2 resolution = vec2(width, height);
+        #define POINT_COUNT 8
+        vec2 points[POINT_COUNT];
+        const float speed = -0.5;
+        const float len = 0.25;
+        float intensity = 1.3;
+        float radius = 0.008;
+
+        float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C){
+          vec2 a = B - A;
+          vec2 b = A - 2.0*B + C;
+          vec2 c = a*2.0;
+          vec2 d = A - pos;
+          float kk = 1.0/dot(b,b);
+          float kx = kk*dot(a,b);
+          float ky = kk*(2.0*dot(a,a)+dot(d,b))/3.0;
+          float kz = kk*dot(d,a);
+          float p = ky - kx*kx;
+          float p3 = p*p*p;
+          float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
+          float h = q*q + 4.0*p3;
+          float res;
+          if(h >= 0.0){
+            h = sqrt(h);
+            vec2 x = (vec2(h,-h)-q)/2.0;
+            vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+            float t = clamp(uv.x+uv.y-kx,0.0,1.0);
+            vec2 qos = d + (c + b*t)*t;
+            res = length(qos);
+          } else {
+            float z = sqrt(-p);
+            float v = acos(q/(p*z*2.0))/3.0;
+            float m = cos(v);
+            float n = sin(v)*1.732050808;
+            vec3 t = vec3(m+m, -n-m, n-m)*z - kx;
+            t = clamp(t, 0.0, 1.0);
+            vec2 qos = d + (c + b*t.x)*t.x; float dis = dot(qos,qos); res = dis;
+            qos = d + (c + b*t.y)*t.y; dis = dot(qos,qos); res = min(res,dis);
+            qos = d + (c + b*t.z)*t.z; dis = dot(qos,qos); res = min(res,dis);
+            res = sqrt(res);
+          }
+          return res;
+        }
+
+        vec2 getHeartPosition(float t){
+          return vec2(16.0*sin(t)*sin(t)*sin(t),
+                      -(13.0*cos(t)-5.0*cos(2.0*t)-2.0*cos(3.0*t)-cos(4.0*t)));
+        }
+        float getGlow(float dist, float radius, float intensity){ return pow(radius/dist, intensity); }
+
+        float getSegment(float t, vec2 pos, float offset){
+          for(int i=0;i<POINT_COUNT;i++){
+            points[i] = getHeartPosition(offset + float(i)*len + fract(speed*t)*6.2831853);
+          }
+          vec2 c = (points[0] + points[1]) / 2.0;
+          vec2 c_prev;
+          float dist = 10000.0;
+          for(int i=0;i<POINT_COUNT-1;i++){
+            c_prev = c;
+            c = (points[i] + points[i+1]) / 2.0;
+            dist = min(dist, sdBezier(pos, scale*c_prev, scale*points[i], scale*c));
+          }
+          return max(0.0, dist);
+        }
+
+        void main(){
+          vec2 uv = gl_FragCoord.xy / resolution.xy;
+          float wh = resolution.x / resolution.y;
+          vec2 centre = vec2(0.5, 0.5);
+          vec2 pos = centre - uv;
+          pos.y /= wh;
+          pos.y += 0.02;               // идентично clip-path
+          float t = time;
+
+          float dist = getSegment(t, pos, 0.0);
+          float glow = getGlow(dist, radius, intensity);
+          vec3 col = vec3(0.0);
+          col += 10.0 * vec3(smoothstep(0.003, 0.001, dist));
+          col += glow * vec3(1.0, 0.05, 0.3);
+
+          dist = getSegment(t, pos, 3.4);
+          glow = getGlow(dist, radius, intensity);
+          col += 10.0 * vec3(smoothstep(0.003, 0.001, dist));
+          col += glow * vec3(0.1, 0.4, 1.0);
+
+          col = 1.0 - exp(-col);
+          col = pow(col, vec3(0.4545));
+          float alpha = clamp(max(col.r, max(col.g, col.b)), 0.0, 1.0);
+          gl_FragColor = vec4(col, alpha);
+        }`;
+
+      function compileShader(src, type){
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          console.error('Shader error:', gl.getShaderInfoLog(s));
+          throw new Error('Shader compile error');
+        }
+        return s;
+      }
+      const vs = compileShader(vsSrc, gl.VERTEX_SHADER);
+      const fs = compileShader(fsFixed, gl.FRAGMENT_SHADER);
+      const program = gl.createProgram();
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('Link error:', gl.getProgramInfoLog(program));
+      }
+      gl.useProgram(program);
+
+      const vertexData = new Float32Array([-1,1,-1,-1,1,1,1,-1]);
+      const vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+      const posLoc = gl.getAttribLocation(program, 'position');
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+      timeHandle   = gl.getUniformLocation(program, 'time');
+      widthHandle  = gl.getUniformLocation(program, 'width');
+      heightHandle = gl.getUniformLocation(program, 'height');
+      scaleHandle  = gl.getUniformLocation(program, 'scale');
+
+      onGLResizeGL();     
+      window.addEventListener('resize', onGLResizeGL);
+    }
+
+    function onGLResizeGL(){
+      if (!gl) return;
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const c = gl.canvas;
+      c.width  = Math.floor(innerWidth  * dpr);
+      c.height = Math.floor(innerHeight * dpr);
+      gl.viewport(0, 0, c.width, c.height);
+      gl.uniform1f(widthHandle,  c.width);
+      gl.uniform1f(heightHandle, c.height);
+      gl.uniform1f(scaleHandle, CURRENT_CSS_SCALE);
+      lastFrame = 0; 
+    }
+
+    function draw(){
+      const now = performance.now();
+      if (!lastFrame) lastFrame = now;
+      ttime += (now - lastFrame) / 1000;
+      lastFrame = now;
+      gl.clearColor(0,0,0,0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform1f(timeHandle, ttime);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      drawRaf = requestAnimationFrame(draw);
+    }
+
+    function startGL(){
+      if (!gl) initGL();
+      onGLResizeGL();
+      if (drawRaf) cancelAnimationFrame(drawRaf);
+      lastFrame = 0;
+      draw();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (!gl) return;
+      if (document.hidden) { if (drawRaf) cancelAnimationFrame(drawRaf); }
+      else { lastFrame = 0; draw(); }
+    });
+
+    function layout(){
+      buildHeartClipPath(); 
+      chooseTile();        
+      buildBaseGrid();      
+      if (gl) onGLResizeGL(); 
+    }
+    window.addEventListener('resize', layout);
+
+    function start(){
+      layout();
+      startGL();
+    }
+
+  </script>
+</body>
+</html>
