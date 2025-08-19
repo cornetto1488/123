@@ -289,7 +289,7 @@
 
   <script>
     /* ======================= НАСТРОЙКИ ======================= */
-    const RIGHT_ANSWERS = ['андрей','andrey']; // корректные ответы (нижний регист)
+    const RIGHT_ANSWERS = ['андрей','andrey']; // корректные ответы (нижний регистр)
 
     // ХОЧЕШЬ БОЛЬШЕ/МЕНЬШЕ СЕРДЦЕ? Меняй множитель:
     const HEART_SCALE_MULT = 2.5;   // увеличить размеры сердца и неона в 2 раза
@@ -306,35 +306,36 @@
     };
 
     // Контент (фото/видео)
-    const media = [
-      { type: 'img', src: '1.jpg' },
-      { type: 'img', src: '2.jpg' },
-      { type: 'video', src: '1.mp4' },
-      { type: 'img', src: '3.jpg' },
-      { type: 'img', src: '4.jpg' },
-      { type: 'img', src: '5.jpg' },
-      { type: 'video', src: '2.mp4' },
-      { type: 'img', src: '6.jpg' },
-      { type: 'img', src: '7.jpg' },
-      { type: 'img', src: '8.jpg' },
-      { type: 'img', src: '9.jpg' },
-      { type: 'img', src: '10.jpg' },
-      { type: 'img', src: '11.jpg' },
-      { type: 'video', src: '3.mp4' },
-      { type: 'img', src: '12.jpg' },
-      { type: 'img', src: '13.jpg' },
-      { type: 'img', src: '14.jpg' },
-      { type: 'img', src: '15.jpg' },
-      { type: 'video', src: '4.mp4' },
-      { type: 'video', src: '5.mp4' },
-      { type: 'video', src: '6.mp4' },
-      { type: 'video', src: '7.mp4' },
-      { type: 'video', src: '8.mp4' },
-      { type: 'video', src: '9.mp4' },
-      { type: 'video', src: '10.mp4' },
-      { type: 'video', src: '11.mp4' },
-      { type: 'video', src: '12.mp4' }
-    ];
+// Контент (фото/видео)
+  const media = [
+    { type: 'img', src: '1.jpg' },
+    { type: 'img', src: '2.jpg' },
+    { type: 'video', src: '1.mp4' }, // Без постера - будет показан первый кадр видео
+    { type: 'img', src: '3.jpg' },
+    { type: 'img', src: '4.jpg' },
+    { type: 'img', src: '5.jpg' },
+    { type: 'video', src: '2.mp4' }, // Без постера
+    { type: 'img', src: '6.jpg' },
+    { type: 'img', src: '7.jpg' },
+    { type: 'img', src: '8.jpg' },
+    { type: 'img', src: '9.jpg' },
+    { type: 'img', src: '10.jpg' },
+    { type: 'img', src: '11.jpg' },
+    { type: 'video', src: '3.mp4' }, // Без постера
+    { type: 'img', src: '12.jpg' },
+    { type: 'img', src: '13.jpg' },
+    { type: 'img', src: '14.jpg' },
+    { type: 'img', src: '15.jpg' },
+    { type: 'video', src: '4.mp4' }, // Без постера
+    { type: 'video', src: '5.mp4' },
+    { type: 'video', src: '6.mp4' },
+    { type: 'video', src: '7.mp4' },
+    { type: 'video', src: '8.mp4' },
+    { type: 'video', src: '9.mp4' },
+    { type: 'video', src: '10.mp4' },
+    { type: 'video', src: '11.mp4' },
+    { type: 'video', src: '12.mp4' }
+  ];
     /* ======================= КОНЕЦ НАСТРОЕК ======================= */
 
     const gate = document.getElementById('gate');
@@ -364,6 +365,7 @@
       start(); 
     });
     function showIntro(){ intro.classList.add('show'); }
+
 
     const heartPathEl = document.getElementById('heart-path');
     let heartBounds = { minX: .25, minY: .2, maxX: .75, maxY: .8 };
@@ -478,8 +480,6 @@
               const meta = media[idx];
               const cell = document.createElement('div');
               cell.className = 'cell';
-              if (meta.type === 'video') cell.classList.add('video-thumb');
-              
               const x = Math.round(GAP + gx * (tile + GAP));
               const y = Math.round(GAP + gy * (tile + GAP));
               cell.style.left = `${x}px`;
@@ -487,17 +487,8 @@
               cell.style.width = `${tile}px`;
               cell.style.height = `${tile}px`;
 
-              // Универсальный обработчик событий
-              const handleClick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                openPop(meta);
-              };
-              
-              cell.addEventListener('click', handleClick);
-              cell.addEventListener('touchend', handleClick);
-
               if (meta.type === 'video') {
+                cell.classList.add('video-thumb');
                 const video = document.createElement('video');
                 video.src = meta.src;
                 if (meta.poster) video.setAttribute('poster', meta.poster);
@@ -515,6 +506,7 @@
                 cell.appendChild(img);
               }
 
+              cell.addEventListener('click', () => openPop(meta));
               grid.appendChild(cell);
             }
           }
@@ -590,7 +582,6 @@
       mask.addEventListener('pointercancel', onPointerUp);
       mask.addEventListener('wheel', onWheel, { passive: false });
 
-      // Для тач-устройств
       mask.addEventListener('touchstart', onPointerDown, { passive: true });
       mask.addEventListener('touchmove', onPointerMove, { passive: true });
       mask.addEventListener('touchend', onPointerUp, { passive: true });
@@ -610,10 +601,7 @@
         el.controls = true;
         el.autoplay = true;
         el.playsInline = true;
-        el.muted = true; // Для автозапуска на большинстве браузеров
-        
-        // Обработчик клика по видео (чтобы не закрывалось при клике)
-        el.addEventListener('click', (e) => e.stopPropagation());
+        el.muted = false;
       } else {
         el = document.createElement('img');
         el.src = meta.src;
@@ -622,31 +610,16 @@
       popContent.appendChild(el);
       popLayer.classList.add('show');
       popLayer.setAttribute('aria-hidden','false');
-      
-      // Фокус для обработки клавиатуры
-      popContent.focus();
     }
-    
     function closePop(){
-      // Остановить все видео перед закрытием
-      const videos = popContent.querySelectorAll('video');
-      videos.forEach(v => {
-        v.pause();
-        v.currentTime = 0;
-      });
-      
       popLayer.classList.remove('show');
       popLayer.setAttribute('aria-hidden','true');
       popContent.innerHTML = '';
     }
-    
     popLayer.addEventListener('click', (e) => {
       if (e.target === popLayer || e.target === popClose) closePop();
     });
-    
-    document.addEventListener('keydown', (e) => { 
-      if (e.key === 'Escape') closePop();
-    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePop(); });
 
     let gl, timeHandle, widthHandle, heightHandle, scaleHandle, lastFrame = 0, ttime = 0, drawRaf;
 
@@ -665,6 +638,47 @@
 
       const vsSrc = 'attribute vec2 position; void main(){ gl_Position = vec4(position,0.0,1.0); }';
       const fsSrc = `
+        precision highp float;
+        uniform float width; uniform float height; uniform float time; uniform float scale; 
+        vec2 resolution = vec2(width, height);
+        #define POINT_COUNT 8
+        vec2 points[POINT_COUNT];
+        const float speed = -0.5;
+        const float len = 0.25;
+        float intensity = 1.3;
+        float radius = 0.008;
+
+        float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C){
+          vec2 a = B - A;
+          vec2 b = A - 2.0*B + C;
+          vec2 c = a*2.0;
+          vec2 d = A - pos;
+          float kk = 1.0/dot(b,b);
+          float kx = kk*dot(a,b);
+          float ky = kk*(2.0*dot(a,a)+dot(d,b))/3.0;
+          float kz = kk*dot(d,a);
+          float p = ky - kx*kx;
+          float p3 = p*p*p;
+          float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
+          float h = q*q + 4.0*p3;
+          float res;
+          if(h >= 0.0){
+            h = sqrt(h);
+            vec2 x = (vec2(h,-h)-q)/2.0;
+            vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+            float t = clamp(uv.x+uv.y-kx,0.0,1.0);
+            vec2 qos = d + (c + b*t)*t;
+            res = length(qos);
+          } else {
+            float z = sqrt(-p);
+            float v = acos(q/(p*z*2.0))/3.0;
+            float m = cos(v);
+            float n = sin(v)*1.732050808;
+            vec3 t = vec3(m+m, -n-m, n-м)*з - kx; /* ASCII-only fix: ниже нормальная строка */
+          }
+        }`;
+
+      const fsFixed = `
         precision highp float;
         uniform float width; uniform float height; uniform float time; uniform float scale; 
         vec2 resolution = vec2(width, height);
@@ -769,7 +783,7 @@
         return s;
       }
       const vs = compileShader(vsSrc, gl.VERTEX_SHADER);
-      const fs = compileShader(fsSrc, gl.FRAGMENT_SHADER);
+      const fs = compileShader(fsFixed, gl.FRAGMENT_SHADER);
       const program = gl.createProgram();
       gl.attachShader(program, vs);
       gl.attachShader(program, fs);
