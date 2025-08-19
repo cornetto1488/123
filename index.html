@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>VIOLETTA-TANKIy</title>
+  <title>VIOLETTA-TANKI</title>
   <style>
     :root {
       /* МОЖНО МЕНЯТЬ: зазор между тайлами и внутренний отступ рамки сердца */
@@ -244,12 +244,10 @@
   <div id="gate">
     <div class="dialog" id="gateDialog">
       <h2>Ответь на вопрос</h2>
-      <p id="questionText">Как звали моего кота?</p>
+      <p id="questionText">Введите имя любимого бывшего?</p>
       <div class="row">
         <input id="answerInput" type="text" placeholder="Твой ответ..." autocomplete="off" />
         <button id="submitBtn">Отправить</button>
-      </div>
-      <p class="hint" id="hintText">Подсказка: ответ — «Барсик».</p>
     </div>
   </div>
 
@@ -259,7 +257,6 @@
       <h2 style="margin:0 0 10px;">Как листать галерею</h2>
       <ul>
         <li>Води пальцем в любую сторону — вверх, вниз, влево или вправо.</li>
-        <li>Прокрутка бесконечная (как на Apple Watch) — просто продолжай движение.</li>
         <li>Нажми на фото, чтобы открыть его на весь экран.</li>
       </ul>
       <button id="startBtn" style="width:100%;">Далее</button>
@@ -291,10 +288,10 @@
 
   <script>
     /* ======================= НАСТРОЙКИ ======================= */
-    const RIGHT_ANSWERS = ['барсик','barsik']; // корректные ответы (нижний регистр)
+    const RIGHT_ANSWERS = ['андрей','andrey']; // корректные ответы (нижний регистр)
 
     // ХОЧЕШЬ БОЛЬШЕ/МЕНЬШЕ СЕРДЦЕ? Меняй множитель:
-    const HEART_SCALE_MULT = 4;   // увеличить размеры сердца и неона в 2 раза
+    const HEART_SCALE_MULT = 2.5;   // увеличить размеры сердца и неона в 2 раза
     const HEART_MARGIN      = 0.03; // запас до краёв (0..1), чтобы не обрезалось
     const CSS_SCALE_BASE    = 0.000015; // базовый коэффициент (умножается на высоту окна)
 
